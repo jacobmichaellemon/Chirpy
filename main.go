@@ -1,15 +1,25 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
-	"sync/atomic"
+	"Chirpy/internal/database"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"slices"
+	"strings"
+	"sync/atomic"
+
+	"github.com/joho/godotenv"
+
+	_ "github.com/lib/pq" //imported but not used, just need the side effect of the package
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	queries        *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -27,21 +37,36 @@ func (cfg *apiConfig) getServerHits() int32 {
 
 var cfg apiConfig
 
-func main () {
+var swears = []string{"kerfuffle", "sharbert", "fornax"}
+
+func main() {
+	err := godotenv.Load(".env")
+	if err != nil {
+		log.Fatal("Enviornement variables failed to load")
+	}
+	dbURL := os.Getenv("DB_URL")
+
+	db, dberr := sql.Open("postgres", dbURL)
+	if dberr != nil {
+		log.Fatal("Failed to open a connection to the database")
+	}
+	dbQueries := database.New(db)
+	cfg.queries = dbQueries
+
 	app := http.StripPrefix("/app", http.FileServer(http.Dir(".")))
 	mux := http.NewServeMux()
 	mux.Handle("/app/", cfg.middlewareMetricsInc(app))
 
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
-		})
-	
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
 	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-        	Body string `json:"body"`
-    	}
+			Body string `json:"body"`
+		}
 
 		decoder := json.NewDecoder(r.Body)
 		params := parameters{}
@@ -51,18 +76,21 @@ func main () {
 			w.WriteHeader(500)
 			return
 		}
+
 		if len(params.Body) > 140 {
 			respondWithError(w, 400, "Chirp is too long")
 			return
 		}
 
+		cleaned := filterProfanity(params.Body)
+
 		type returnVals struct {
-			Valid bool `json:"valid"`
-    	}
-   		respBody := returnVals{
-			Valid: true,
-    	}
-    	dat, err := json.Marshal(respBody)
+			Cleaned_Body string `json:"cleaned_body"`
+		}
+		respBody := returnVals{
+			Cleaned_Body: cleaned,
+		}
+		dat, err := json.Marshal(respBody)
 		if err != nil {
 			log.Printf("Error marshalling JSON: %s", err)
 			w.WriteHeader(500)
@@ -71,7 +99,7 @@ func main () {
 
 		respondWithJSON(w, 200, dat)
 
-		})
+	})
 
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
 		numVisits := cfg.getServerHits()
@@ -87,8 +115,8 @@ func main () {
 	})
 
 	server := http.Server{
-		Handler:	mux,
-		Addr:		":8080",
+		Handler: mux,
+		Addr:    ":8080",
 	}
 	server.ListenAndServe()
 }
@@ -96,24 +124,35 @@ func main () {
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	type returnVals struct {
 		Error string `json:"error"`
-    	}
-   	respBody := returnVals{
+	}
+	respBody := returnVals{
 		Error: msg,
-    }
+	}
 	dat, err := json.Marshal(respBody)
 	if err != nil {
-			log.Printf("Error marshalling JSON: %s", err)
-			w.WriteHeader(500)
-			return
+		log.Printf("Error marshalling JSON: %s", err)
+		w.WriteHeader(500)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(dat)
-	return
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(payload)
+}
+
+func filterProfanity(text string) string {
+	words := strings.Split(text, " ")
+	for i, word := range words {
+		badword := slices.Contains(swears, strings.ToLower(word))
+		if badword {
+			words[i] = "****"
+		}
+	}
+	cleaned_text := strings.Join(words, " ")
+	return cleaned_text
 }
