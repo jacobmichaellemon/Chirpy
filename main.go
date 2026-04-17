@@ -11,7 +11,9 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
 	_ "github.com/lib/pq" //imported but not used, just need the side effect of the package
@@ -19,7 +21,8 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
-	queries        *database.Queries
+	db             *database.Queries
+	platform       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -35,6 +38,13 @@ func (cfg *apiConfig) getServerHits() int32 {
 	return numHits
 }
 
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
 var cfg apiConfig
 
 var swears = []string{"kerfuffle", "sharbert", "fornax"}
@@ -45,13 +55,18 @@ func main() {
 		log.Fatal("Enviornement variables failed to load")
 	}
 	dbURL := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
+	if platform != "" {
+		cfg.platform = platform
+	}
+	log.Printf("Connecting to: %s", dbURL)
 
-	db, dberr := sql.Open("postgres", dbURL)
+	postgres, dberr := sql.Open("postgres", dbURL)
 	if dberr != nil {
 		log.Fatal("Failed to open a connection to the database")
 	}
-	dbQueries := database.New(db)
-	cfg.queries = dbQueries
+	db := database.New(postgres)
+	cfg.db = db
 
 	app := http.StripPrefix("/app", http.FileServer(http.Dir(".")))
 	mux := http.NewServeMux()
@@ -101,6 +116,43 @@ func main() {
 
 	})
 
+	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Email string
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		params := parameters{}
+		err := decoder.Decode(&params)
+		if err != nil {
+			log.Printf("Error decoding parameters: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		user, err := cfg.db.CreateUser(r.Context(), params.Email)
+
+		if err != nil {
+			log.Printf("Error sending query to db: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		log.Printf("DB USER CREATED: %v", user.Email)
+
+		respBody := User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		}
+
+		dat, err := json.Marshal(respBody)
+
+		respondWithJSON(w, 201, dat)
+
+	})
+
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
 		numVisits := cfg.getServerHits()
 		metrics := fmt.Sprintf("<html><body><h1>Welcome, Chirpy Admin</h1><p>Chirpy has been visited %d times!</p></body></html>", numVisits)
@@ -110,6 +162,13 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.platform != "dev" {
+			w.WriteHeader(http.StatusForbidden)
+		}
+		err := cfg.db.DeleteUsers(r.Context())
+		if err != nil {
+			log.Printf("Error deleting the db: %s", err)
+		}
 		cfg.fileserverHits.Store(0)
 		w.WriteHeader(http.StatusOK)
 	})
