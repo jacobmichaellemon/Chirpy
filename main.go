@@ -45,6 +45,14 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	User_ID   uuid.UUID `json:"user_id"`
+}
+
 var cfg apiConfig
 
 var swears = []string{"kerfuffle", "sharbert", "fornax"}
@@ -78,44 +86,6 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
-		type parameters struct {
-			Body string `json:"body"`
-		}
-
-		decoder := json.NewDecoder(r.Body)
-		params := parameters{}
-		err := decoder.Decode(&params)
-		if err != nil {
-			log.Printf("Error decoding parameters: %s", err)
-			w.WriteHeader(500)
-			return
-		}
-
-		if len(params.Body) > 140 {
-			respondWithError(w, 400, "Chirp is too long")
-			return
-		}
-
-		cleaned := filterProfanity(params.Body)
-
-		type returnVals struct {
-			Cleaned_Body string `json:"cleaned_body"`
-		}
-		respBody := returnVals{
-			Cleaned_Body: cleaned,
-		}
-		dat, err := json.Marshal(respBody)
-		if err != nil {
-			log.Printf("Error marshalling JSON: %s", err)
-			w.WriteHeader(500)
-			return
-		}
-
-		respondWithJSON(w, 200, dat)
-
-	})
-
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
 			Email string
@@ -138,8 +108,6 @@ func main() {
 			return
 		}
 
-		log.Printf("DB USER CREATED: %v", user.Email)
-
 		respBody := User{
 			ID:        user.ID,
 			CreatedAt: user.CreatedAt,
@@ -150,6 +118,114 @@ func main() {
 		dat, err := json.Marshal(respBody)
 
 		respondWithJSON(w, 201, dat)
+
+	})
+
+	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Body   string    `json:"body"`
+			UserID uuid.UUID `json:"user_id"`
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		params := parameters{}
+		err := decoder.Decode(&params)
+		if err != nil {
+			log.Printf("Error decoding parameters: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		if len(params.Body) > 140 {
+			respondWithError(w, 400, "Chirp is too long")
+			return
+		}
+
+		params.Body = filterProfanity(params.Body)
+
+		chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
+			Body:   params.Body,
+			UserID: params.UserID,
+		})
+
+		if err != nil {
+			log.Printf("Error sending query to db: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		respBody := Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			User_ID:   chirp.UserID,
+		}
+
+		dat, err := json.Marshal(respBody)
+
+		respondWithJSON(w, 201, dat)
+
+	})
+
+	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+
+		chirps, err := cfg.db.GetChirps(r.Context())
+
+		if err != nil {
+			log.Printf("Error sending query to db: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		var respBody []Chirp
+
+		for _, chirp := range chirps {
+			newChirp := Chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				User_ID:   chirp.UserID,
+			}
+			respBody = append(respBody, newChirp)
+		}
+
+		dat, err := json.Marshal(respBody)
+
+		respondWithJSON(w, 200, dat)
+
+	})
+
+	mux.HandleFunc("GET /api/chirps/{id}", func(w http.ResponseWriter, r *http.Request) {
+
+		chirpIdStr := r.PathValue("id")
+		chirpId, err := uuid.Parse(chirpIdStr)
+
+		if err != nil {
+			log.Printf("User_ID not found: %s", err)
+			w.WriteHeader(404)
+		}
+
+		log.Printf("SEARCHING FOR %v", chirpId)
+		chirp, err := cfg.db.GetChirp(r.Context(), chirpId)
+
+		if err != nil {
+			w.WriteHeader(404)
+			return
+		}
+
+		respBody := Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			User_ID:   chirp.UserID,
+		}
+
+		dat, err := json.Marshal(respBody)
+
+		respondWithJSON(w, 200, dat)
 
 	})
 
