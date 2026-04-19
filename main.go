@@ -207,7 +207,6 @@ func main() {
 			w.WriteHeader(404)
 		}
 
-		log.Printf("SEARCHING FOR %v", chirpId)
 		chirp, err := cfg.db.GetChirp(r.Context(), chirpId)
 
 		if err != nil {
