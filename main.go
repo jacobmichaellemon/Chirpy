@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Chirpy/internal/auth"
 	"Chirpy/internal/database"
 	"database/sql"
 	"encoding/json"
@@ -88,7 +89,8 @@ func main() {
 
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-			Email string
+			Email    string
+			Password string
 		}
 
 		decoder := json.NewDecoder(r.Body)
@@ -100,7 +102,19 @@ func main() {
 			return
 		}
 
-		user, err := cfg.db.CreateUser(r.Context(), params.Email)
+		hashed_password, err := auth.HashPassword(params.Password)
+		if err != nil {
+			log.Printf("Error creating password %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		params.Password = hashed_password
+
+		user, err := cfg.db.CreateUser(r.Context(), database.CreateUserParams{
+			Email:          params.Email,
+			HashedPassword: hashed_password,
+		})
 
 		if err != nil {
 			log.Printf("Error sending query to db: %s", err)
@@ -118,6 +132,48 @@ func main() {
 		dat, err := json.Marshal(respBody)
 
 		respondWithJSON(w, 201, dat)
+
+	})
+
+	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Email    string
+			Password string
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		params := parameters{}
+		err := decoder.Decode(&params)
+		if err != nil {
+			log.Printf("Error decoding parameters: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		user, err := cfg.db.UserLookupEmail(r.Context(), params.Email)
+
+		if err != nil {
+			log.Printf("Error sending query to db: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		valid_password, err := auth.CheckPasswordHash(params.Password, user.HashedPassword)
+		if valid_password == false || err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+			return
+		}
+
+		respBody := User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		}
+
+		dat, err := json.Marshal(respBody)
+
+		respondWithJSON(w, 200, dat)
 
 	})
 
