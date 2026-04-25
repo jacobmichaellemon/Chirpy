@@ -29,7 +29,38 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	ss, err := token.SignedString(token)
 	if err != nil {
-		return "", err
+		return "error signing string", err
 	}
 	return ss, nil
+}
+
+func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
+	var claims jwt.RegisteredClaims
+	// ParseWithClaims parses the token and populates the 'claims' struct
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+		// Important: Always validate the signing method
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return tokenSecret, nil
+	})
+
+	var nilID uuid.NullUUID = uuid.NullUUID{}
+
+	// Check for parsing or validation errors
+	if err != nil {
+		return nilID.UUID, err
+	}
+
+	// Verify if the token is actually valid (signatures and standard claims)
+	if !token.Valid {
+		return nilID.UUID, jwt.ErrSignatureInvalid
+	}
+
+	id, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return nilID.UUID, err
+	}
+
+	return id, nil
 }
