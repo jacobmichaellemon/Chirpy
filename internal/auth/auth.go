@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -27,9 +30,9 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 		Subject:   userID.String(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	ss, err := token.SignedString(token)
+	ss, err := token.SignedString([]byte(tokenSecret))
 	if err != nil {
-		return "error signing string", err
+		return "", err
 	}
 	return ss, nil
 }
@@ -42,7 +45,7 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
 		}
-		return tokenSecret, nil
+		return []byte(tokenSecret), nil
 	})
 
 	var nilID uuid.NullUUID = uuid.NullUUID{}
@@ -63,4 +66,19 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	}
 
 	return id, nil
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	headerValues := headers.Values("Authorization")
+	if len(headerValues) == 0 {
+		return "", nil //no auth headers to grab
+	}
+
+	token := headers.Get("Authorization")
+	token = strings.TrimPrefix(token, "Bearer ")
+	if token == "" {
+		err := fmt.Errorf("No bearer token was found!")
+		return "", err
+	}
+	return token, nil
 }

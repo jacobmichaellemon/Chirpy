@@ -24,6 +24,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             *database.Queries
 	platform       string
+	secret         string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -44,6 +45,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
 
 type Chirp struct {
@@ -65,8 +67,12 @@ func main() {
 	}
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
+	secret := os.Getenv("SECRET")
 	if platform != "" {
 		cfg.platform = platform
+	}
+	if platform != "" {
+		cfg.secret = secret
 	}
 	log.Printf("Connecting to: %s", dbURL)
 
@@ -137,10 +143,10 @@ func main() {
 
 	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-			Email    string
-			Password string
+			Email              string `json:"email"`
+			Password           string `json:"password"`
+			Expires_In_Seconds int    `json:"expires_in_seconds"`
 		}
-
 		decoder := json.NewDecoder(r.Body)
 		params := parameters{}
 		err := decoder.Decode(&params)
@@ -148,6 +154,10 @@ func main() {
 			log.Printf("Error decoding parameters: %s", err)
 			w.WriteHeader(500)
 			return
+		}
+
+		if params.Expires_In_Seconds == 0 || params.Expires_In_Seconds > 3600 {
+			params.Expires_In_Seconds = 3600
 		}
 
 		user, err := cfg.db.UserLookupEmail(r.Context(), params.Email)
@@ -164,11 +174,18 @@ func main() {
 			return
 		}
 
+		token, err := auth.MakeJWT(user.ID, cfg.secret, (time.Duration(params.Expires_In_Seconds) * time.Second))
+
+		if err != nil {
+			log.Println("Issue making JWT token")
+		}
+
 		respBody := User{
 			ID:        user.ID,
 			CreatedAt: user.CreatedAt,
 			UpdatedAt: user.UpdatedAt,
 			Email:     user.Email,
+			Token:     token,
 		}
 
 		dat, err := json.Marshal(respBody)
@@ -183,9 +200,21 @@ func main() {
 			UserID uuid.UUID `json:"user_id"`
 		}
 
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			log.Printf("No auth token found: %s", err)
+			return
+		}
+
+		userId, err := auth.ValidateJWT(token, cfg.secret)
+
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Not authroized")
+		}
+
 		decoder := json.NewDecoder(r.Body)
 		params := parameters{}
-		err := decoder.Decode(&params)
+		err = decoder.Decode(&params)
 		if err != nil {
 			log.Printf("Error decoding parameters: %s", err)
 			w.WriteHeader(500)
@@ -201,7 +230,7 @@ func main() {
 
 		chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
 			Body:   params.Body,
-			UserID: params.UserID,
+			UserID: userId,
 		})
 
 		if err != nil {
