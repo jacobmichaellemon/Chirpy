@@ -26,7 +26,7 @@ func (cfg *apiConfig) handlerRefresh(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 
-	token, err := auth.MakeJWT(user, cfg.secret, (1 * time.Hour))
+	token, err := auth.MakeJWT(user.ID, cfg.secret, (1 * time.Hour))
 	if err != nil {
 		log.Printf("Error creating access token: %s", err)
 		w.WriteHeader(401)

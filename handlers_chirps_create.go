@@ -26,6 +26,7 @@ func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request
 
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Not authroized")
+		return
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -43,7 +44,6 @@ func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request
 	}
 
 	params.Body = filterProfanity(params.Body)
-
 	chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   params.Body,
 		UserID: userId,

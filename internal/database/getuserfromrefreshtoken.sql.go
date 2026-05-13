@@ -7,21 +7,26 @@ package database
 
 import (
 	"context"
-
-	"github.com/google/uuid"
 )
 
 const getUserFromRefreshToken = `-- name: GetUserFromRefreshToken :one
-SELECT user_id
-FROM refreshtokens
-WHERE token = $1
-AND revoked_at IS NULL
-AND expires_at > NOW()
+SELECT users.id, users.created_at, users.updated_at, users.email, users.hashed_password
+FROM users
+INNER JOIN refreshtokens ON users.id = refreshtokens.user_id
+WHERE refreshtokens.token = $1
+  AND refreshtokens.revoked_at IS NULL
+  AND refreshtokens.expires_at > NOW()
 `
 
-func (q *Queries) GetUserFromRefreshToken(ctx context.Context, token string) (uuid.UUID, error) {
+func (q *Queries) GetUserFromRefreshToken(ctx context.Context, token string) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUserFromRefreshToken, token)
-	var user_id uuid.UUID
-	err := row.Scan(&user_id)
-	return user_id, err
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.HashedPassword,
+	)
+	return i, err
 }
