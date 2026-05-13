@@ -10,12 +10,13 @@ import (
 
 func (cfg *apiConfig) handlerChirpGet(w http.ResponseWriter, r *http.Request) {
 
-	chirpIdStr := r.PathValue("id")
+	chirpIdStr := r.PathValue("chirpID")
 	chirpId, err := uuid.Parse(chirpIdStr)
 
 	if err != nil {
-		log.Printf("User_ID not found: %s", err)
+		log.Printf("Chirp not found: %s", err)
 		w.WriteHeader(404)
+		return
 	}
 
 	chirp, err := cfg.db.GetChirp(r.Context(), chirpId)
