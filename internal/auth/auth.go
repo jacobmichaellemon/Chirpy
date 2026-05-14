@@ -42,7 +42,7 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	var claims jwt.RegisteredClaims
 	// ParseWithClaims parses the token and populates the 'claims' struct
-	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (any, error) {
 		// Important: Always validate the signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
@@ -71,11 +71,6 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
-	headerValues := headers.Values("Authorization")
-	if len(headerValues) == 0 {
-		return "", nil //no auth headers to grab
-	}
-
 	token := headers.Get("Authorization")
 	token = strings.TrimPrefix(token, "Bearer ")
 	if token == "" {
@@ -83,6 +78,16 @@ func GetBearerToken(headers http.Header) (string, error) {
 		return "", err
 	}
 	return token, nil
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	apiKey := headers.Get("Authorization")
+	apiKey = strings.TrimPrefix(apiKey, "ApiKey ")
+	if apiKey == "" {
+		err := fmt.Errorf("No api key was found!")
+		return "", err
+	}
+	return apiKey, nil
 }
 
 func MakeRefreshToken() string {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Chirpy/internal/auth"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -9,6 +10,12 @@ import (
 )
 
 func (cfg *apiConfig) handlerChirpyRed(w http.ResponseWriter, r *http.Request) {
+	polkaKey, err := auth.GetAPIKey(r.Header)
+	if polkaKey != cfg.polkaKey {
+		w.WriteHeader(401)
+		return
+	}
+
 	type parameters struct {
 		Event string
 		Data  struct {
@@ -17,7 +24,7 @@ func (cfg *apiConfig) handlerChirpyRed(w http.ResponseWriter, r *http.Request) {
 	}
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		log.Printf("Error decoding parameters: %s", err)
 		w.WriteHeader(500)
