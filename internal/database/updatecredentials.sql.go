@@ -15,7 +15,7 @@ const updateUserCredentials = `-- name: UpdateUserCredentials :one
 UPDATE users
 SET email = $2, hashed_password = $3, updated_at = NOW()
 WHERE id = $1
-RETURNING id, created_at, updated_at, email, hashed_password
+RETURNING id, created_at, updated_at, email, hashed_password, is_chirpy_red
 `
 
 type UpdateUserCredentialsParams struct {
@@ -33,6 +33,7 @@ func (q *Queries) UpdateUserCredentials(ctx context.Context, arg UpdateUserCrede
 		&i.UpdatedAt,
 		&i.Email,
 		&i.HashedPassword,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }

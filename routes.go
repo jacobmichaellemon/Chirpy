@@ -12,6 +12,7 @@ func (cfg *apiConfig) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/chirps", cfg.handlerChirpsGet)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerChirpGet)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.handlerChirpDelete)
+	mux.HandleFunc("POST /api/polka/webhooks", cfg.handlerChirpyRed)
 
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
