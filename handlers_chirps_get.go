@@ -1,52 +1,61 @@
 package main
 
 import (
+	"Chirpy/internal/database"
 	"encoding/json"
 	"log"
 	"net/http"
 	"sort"
+
+	"github.com/google/uuid"
 )
 
 func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
 
-	chirps, err := cfg.db.GetChirps(r.Context())
+	type Chirps struct {
+		Request []database.Chirp
+		Error   error
+		Type    string
+	}
 
-	if err != nil {
-		log.Printf("Error sending query to db: %s", err)
+	author_id := r.URL.Query().Get("author_id")
+	chirps := Chirps{Request: nil, Error: nil, Type: author_id}
+
+	if chirps.Type == "" {
+		chirps.Request, chirps.Error = cfg.db.GetChirps(r.Context())
+	} else if chirps.Type != "" {
+		id, err := uuid.Parse(chirps.Type)
+
+		if err != nil {
+			log.Printf("Invalid author ID: %s", chirps.Error)
+			w.WriteHeader(500)
+			return
+		}
+
+		chirps.Request, chirps.Error = cfg.db.GetChirpsByAuthor(r.Context(), id)
+	}
+
+	if chirps.Error != nil {
+		log.Printf("Error sending query to db: %s", chirps.Error)
 		w.WriteHeader(500)
 		return
 	}
 
 	var respBody []Chirp
 
-	for _, chirp := range chirps {
-		s := r.URL.Query().Get("author_id")
-		// s is a string that contains the value of the author_id query parameter
-		// if it exists, or an empty string if it doesn't
-		if s != "" {
-			if s == chirp.UserID.String() {
-				newChirp := Chirp{
-					ID:        chirp.ID,
-					CreatedAt: chirp.CreatedAt,
-					UpdatedAt: chirp.UpdatedAt,
-					Body:      chirp.Body,
-					User_ID:   chirp.UserID,
-				}
-				respBody = append(respBody, newChirp)
-			}
-		} else {
-			newChirp := Chirp{
-				ID:        chirp.ID,
-				CreatedAt: chirp.CreatedAt,
-				UpdatedAt: chirp.UpdatedAt,
-				Body:      chirp.Body,
-				User_ID:   chirp.UserID,
-			}
-			respBody = append(respBody, newChirp)
+	for _, chirp := range chirps.Request {
+		newChirp := Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			User_ID:   chirp.UserID,
 		}
+		respBody = append(respBody, newChirp)
 	}
 
 	sorting := r.URL.Query().Get("sort")
+
 	if sorting == "" {
 		sorting = "asc"
 	}
@@ -63,6 +72,12 @@ func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dat, err := json.Marshal(respBody)
+
+	if err != nil {
+		log.Printf("Error marshling resonse: %s", err)
+		w.WriteHeader(500)
+		return
+	}
 
 	respondWithJSON(w, 200, dat)
 
