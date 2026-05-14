@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sort"
 )
 
 func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
@@ -19,14 +20,46 @@ func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
 	var respBody []Chirp
 
 	for _, chirp := range chirps {
-		newChirp := Chirp{
-			ID:        chirp.ID,
-			CreatedAt: chirp.CreatedAt,
-			UpdatedAt: chirp.UpdatedAt,
-			Body:      chirp.Body,
-			User_ID:   chirp.UserID,
+		s := r.URL.Query().Get("author_id")
+		// s is a string that contains the value of the author_id query parameter
+		// if it exists, or an empty string if it doesn't
+		if s != "" {
+			if s == chirp.UserID.String() {
+				newChirp := Chirp{
+					ID:        chirp.ID,
+					CreatedAt: chirp.CreatedAt,
+					UpdatedAt: chirp.UpdatedAt,
+					Body:      chirp.Body,
+					User_ID:   chirp.UserID,
+				}
+				respBody = append(respBody, newChirp)
+			}
+		} else {
+			newChirp := Chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				User_ID:   chirp.UserID,
+			}
+			respBody = append(respBody, newChirp)
 		}
-		respBody = append(respBody, newChirp)
+	}
+
+	sorting := r.URL.Query().Get("sort")
+	if sorting == "" {
+		sorting = "asc"
+	}
+
+	if sorting == "asc" {
+		sort.Slice(respBody, func(i, j int) bool {
+			return respBody[i].CreatedAt.Before(respBody[j].CreatedAt)
+		})
+	}
+	if sorting == "desc" {
+		sort.Slice(respBody, func(i, j int) bool {
+			return respBody[i].CreatedAt.After(respBody[j].CreatedAt)
+		})
 	}
 
 	dat, err := json.Marshal(respBody)
